@@ -1,0 +1,89 @@
+# YOLOv8CCFM
+1.YOLOv8s
+YOLOv8s模型主要由主干网络、颈部网络、头部网络3部分组成。
+2.CCFM
+RT-DETR中的轻量级跨尺度特征融合模块CCFM（Cross-Scale Feature Fusion Module）在Swin Transformer中的多尺度特征融合策略基础上，进一步优化了模型的计算效率，
+其采用了高效的特征融合策略，通过简化的卷积操作和参数共享减少了计算负担和参数数量，同时通过尺度内交互和跨尺度融合的两步操作，有效地整合了多尺度特征，避免了冗余计算。
+3.改进的yolov8s
+为了提高缺陷检测模型的性能和效率，基于YOLOv8s模型进行改进，通过在YOLOv8s颈部网络中融合轻量级网络CCFM模块构建全新的颈部网络，从而提出一种新的基于轻量化YOLOv8s的钢材表面缺陷检测模型。
+4.实验运行
+（1）在autodl（https://www.autodl.com/home）平台租用一个合适的服务器运行该改进的YOLOv8s模型
+（2）在官网下载YOLOv8源码压缩包并上传到服务器，打开服务器终端输入unzip ultralytics-main.zip指令解压模型
+（3）新建一个datasets文件夹用于存放数据集
+（4)将钢材表面缺陷据集NEU-DET数据集按照7:2:1的比例划训练集、验证集和测试集。划分后的数据集有images和labels两个文件夹，每个文件夹又有train，val，test三个子文件夹。
+将images的test子文件和labels的test子文件中拿出后，再将剩余images和labels文件压缩成压缩包mydata1上传到服务器的datasets文件夹中，
+选中mydata1.zip然后打开终端输入unzip mydata1.zip指令解压mydata1数据集到当前目录。
+（5）因为yolov8模型中已经集成了RT-DETR中CCFM模块相关源码，所以只需要建立mydata1数据集的yaml文件和改进的YOLOv8s模型的yaml文件即可，
+mydata1.yaml文件源码：
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# COCO128 dataset https://www.kaggle.com/ultralytics/coco128 (first 128 images from COCO train2017) by Ultralytics
+# Documentation: https://docs.ultralytics.com/datasets/detect/coco/
+# Example usage: yolo train data=coco128.yaml
+# parent
+# ├── ultralytics
+# └── datasets
+#     └── coco128  ← downloads here (7 MB)
+# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+train: mydata1/images/train # train images (relative to 'path') 128 images
+val: mydata1/images/val # val images (relative to 'path') 128 images
+test: # test images (optional)
+nc: 6
+# Classes
+names:
+  0: crazing
+  1: inclusion
+  2: patches
+  3: pitted_surface
+  4: rolled-in_scale
+  5: scratches
+改进的YOLOv8s模型的yaml文件-CCFM.yaml源码：
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# YOLOv8 object detection model with P3-P5 outputs. For Usage examples see https://docs.ultralytics.com/tasks/detect
+
+# Parameters
+nc: 6  # number of classes
+scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'
+  # [depth, width, max_channels]
+  s: [0.33, 0.50, 1024]  # YOLOv8s summary: 225 layers, 11166560 parameters, 11166544 gradients,  28.8 GFLOPs
+  
+
+# YOLOv8.0n backbone
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]  # 1-P2/4
+  - [-1, 3, C2f, [128, True]]
+  - [-1, 1, Conv, [256, 3, 2]]  # 3-P3/8
+  - [-1, 6, C2f, [256, True]]
+  - [-1, 1, Conv, [512, 3, 2]]  # 5-P4/16
+  - [-1, 6, C2f, [512, True]]
+  - [-1, 1, Conv, [1024, 3, 2]]  # 7-P5/32
+  - [-1, 3, C2f, [1024, True]]
+  - [-1, 1, SPPF, [1024, 5]]  # 9
+
+# YOLOv8.0n head
+head:
+  - [-1, 1, Conv, [256, 1, 1]]  # 10, Y5, lateral_convs.0
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+
+  - [6, 1, Conv, [256, 1, 1, None, 1, 1, False]]  # 12 input_proj.1
+  - [[-2, -1], 1, Concat, [1]]
+  - [-1, 3, C2f, [256]]  # 14, fpn_blocks.0
+  - [-1, 1, Conv, [256, 1, 1]]  # 15, Y4, lateral_convs.1
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+  - [4, 1, Conv, [256, 1, 1, None, 1, 1, False]]  # 17 input_proj.0
+  - [[-2, -1], 1, Concat, [1]]  # cat backbone P4
+  - [-1, 3, C2f, [256]]  # X3 (19), fpn_blocks.1
+  - [-1, 1, Conv, [256, 3, 2]]  # 220, downsample_convs.0
+  - [[-1, 15], 1, Concat, [1]]  # cat Y4
+  - [-1, 3, C2f, [256]]  # F4 (22), pan_blocks.0
+
+  - [-1, 1, Conv, [256, 3, 2]]  # 25, downsample_convs.1
+  - [[-1, 10], 1, Concat, [1]]  # cat Y5
+  - [-1, 3, C2f, [256]]  # F5 (25), pan_blocks.1
+
+  - [[19, 22, 25], 1, Detect, [nc]]  # Detect(P3, P4, P5)
+（6）选中ultralytics文件夹打开终端输入pip install ultralytics下载YOLOv8s运行所需要的配置文件，
+然后在终端输入yolo detect train model= CCFM.yaml data= mydata1.yaml epochs=300 imgsz=640指令就可以成功运行了。
+(7)在终端输入yolo detect val model=runs/train/train17/weights/best.pt data=mydata1.yaml指令就可以使用训练得到的最好权重文件进行成功验证了。
